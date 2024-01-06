@@ -116,35 +116,44 @@ impl Monado {
 		})
 	}
 
-	pub fn devices<'m>(&'m self) -> Result<impl IntoIterator<Item = Device<'m>>, MndResult> {
+	pub fn devices<'m>(&'m self) -> Result<Vec<Device>, MndResult> {
 		let mut device_count = 0;
 		unsafe {
 			self.api
 				.mnd_root_get_device_count(self.root, &mut device_count)
 				.to_result()?
 		};
-		let mut devices: Vec<Option<Device>> = vec::from_elem(None, device_count as usize);
-		for (index, device) in devices.iter_mut().enumerate() {
+		let mut devices: Vec<Device> = vec![];
+		for i in 0..device_count {
 			let mut id = 0;
 			let mut c_name: *const c_char = std::ptr::null_mut();
-			unsafe {
+			if unsafe {
 				self.api
-					.mnd_root_get_device_info(self.root, index as u32, &mut id, &mut c_name)
-					.to_result()?
+					.mnd_root_get_device_info(self.root, i as u32, &mut id, &mut c_name)
+					.to_result()
+			}
+			.is_err()
+			{
+				continue;
 			};
 			let name = unsafe {
-				CStr::from_ptr(c_name)
+				match CStr::from_ptr(c_name)
 					.to_str()
-					.map_err(|_| MndResult::ErrorInvalidValue)?
-					.to_owned()
+					.map_err(|_| MndResult::ErrorInvalidValue)
+				{
+					Ok(n) => n.to_owned(),
+					Err(_) => {
+						continue;
+					}
+				}
 			};
-			device.replace(Device {
+			devices.push(Device {
 				monado: self,
 				id,
 				name,
 			});
 		}
-		Ok(devices.into_iter().flatten())
+		Ok(devices)
 	}
 }
 impl Drop for Monado {
